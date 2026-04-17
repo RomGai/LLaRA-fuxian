@@ -100,7 +100,7 @@ MODEL_NAME=Qwen/Qwen3-8B DATASET_PREFIX=Baby_Products MAX_USERS=100 bash run_qwe
 
 This script:
 - loads Qwen3 with `AutoTokenizer` + `AutoModelForCausalLM` from HuggingFace directly;
-- samples `1 target + 1000 random negatives` per user by default;
+- strictly samples `1 target + 1000 random negatives` per user by default (insufficient candidate pool will raise an error);
 - asks the model to output a full ranking over candidates;
 - computes and prints running-average HR@10/20/40 and NDCG@10/20/40 per processed user.
 

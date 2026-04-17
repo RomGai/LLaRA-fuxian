@@ -59,9 +59,13 @@ def sample_candidates(all_item_ids: List[int], history: List[int], target: int, 
     banned = set(history)
     banned.add(target)
     pool = [x for x in all_item_ids if x not in banned]
-    sampled = rng.sample(pool, min(num_negatives, len(pool)))
+    if len(pool) < num_negatives:
+        raise ValueError(f"Not enough negatives for strict sampling: need={num_negatives}, available={len(pool)}")
+    sampled = rng.sample(pool, num_negatives)
     candidates = sampled + [target]
     rng.shuffle(candidates)
+    if len(candidates) != num_negatives + 1:
+        raise ValueError(f"Invalid candidate size: expected={num_negatives + 1}, got={len(candidates)}")
     return candidates
 
 

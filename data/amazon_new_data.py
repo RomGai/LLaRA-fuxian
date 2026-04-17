@@ -156,9 +156,12 @@ class AmazonNewData(data.Dataset):
         all_candidates = [x for x in self.item_ids if x not in seen]
         neg_num = max(1, self.cans_num - 1)
         if len(all_candidates) < neg_num:
-            sampled = all_candidates
-        else:
-            sampled = self.rng.sample(all_candidates, neg_num)
+            raise ValueError(
+                f"Not enough negatives for strict eval sampling: need={neg_num}, available={len(all_candidates)}"
+            )
+        sampled = self.rng.sample(all_candidates, neg_num)
         candidates = sampled + [next_item]
         self.rng.shuffle(candidates)
+        if len(candidates) != self.cans_num:
+            raise ValueError(f"Invalid candidate size: expected={self.cans_num}, got={len(candidates)}")
         return candidates
