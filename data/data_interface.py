@@ -80,6 +80,7 @@ class TrainCollater:
                        "len_seq":torch.stack([torch.tensor(sample['len_seq']) for sample in batch], dim=0),
                        "len_cans":torch.stack([torch.tensor(sample['len_cans']) for sample in batch], dim=0),
                        "item_id": torch.stack([torch.tensor(sample['item_id']) for sample in batch], dim=0),
+                       "user_id": [sample.get('user_id', -1) for sample in batch],
                        "flag":flag,
                        }
         else:
@@ -97,6 +98,7 @@ class TrainCollater:
                        "len_seq":torch.stack([torch.tensor(sample['len_seq']) for sample in batch], dim=0),
                        "len_cans":torch.stack([torch.tensor(sample['len_cans']) for sample in batch], dim=0),
                        "item_id": torch.stack([torch.tensor(sample['item_id']) for sample in batch], dim=0),
+                       "user_id": [sample.get('user_id', -1) for sample in batch],
                        "correct_answer": targets_text,
                        "cans_name": cans_name,
                        }
