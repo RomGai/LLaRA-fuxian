@@ -71,3 +71,49 @@ Test LLaRA with a single A100 GPU on LastFM dataset:
 ```sh
 sh test_lastfm.sh
 ```
+
+##### Run with `new_data` (Amazon-style split by filename)
+
+- `*_user_items_negs_train.csv` is used for training/validation users.
+- `*_user_items_negs_test.csv` is used for test users only (runtime checks enforce no train/test user overlap).
+- Backbone LLM can be passed directly as a HuggingFace model id (for example `meta-llama/Llama-2-7b-hf`) and will be downloaded by `from_pretrained`.
+
+Train:
+```sh
+HF_MODEL_ID=meta-llama/Llama-2-7b-hf DATASET_PREFIX=Baby_Products REC_MODEL_PATH=./rec_model/baby_products.pt bash train_new_data.sh
+```
+
+Rank-based inference (1 target + 1000 random negatives):
+```sh
+HF_MODEL_ID=meta-llama/Llama-2-7b-hf DATASET_PREFIX=Baby_Products REC_MODEL_PATH=./rec_model/baby_products.pt CKPT_PATH=./checkpoints/Baby_Products/last.ckpt bash test_new_data_rank.sh
+```
+
+During rank inference, the code prints per-user running averages of HR@10/20/40 and NDCG@10/20/40 after each processed user.
+
+##### Qwen3 native inference (skip training)
+
+If you want to skip training and directly run native Qwen3 inference on test users:
+
+```sh
+MODEL_NAME=Qwen/Qwen3-8B DATASET_PREFIX=Baby_Products MAX_USERS=100 bash run_qwen3_native_infer.sh
+```
+
+This script:
+- loads Qwen3 with `AutoTokenizer` + `AutoModelForCausalLM` from HuggingFace directly;
+- samples `1 target + 1000 random negatives` per user by default;
+- asks the model to output a full ranking over candidates;
+- computes and prints running-average HR@10/20/40 and NDCG@10/20/40 per processed user.
+
+##### Qwen3-8B training (LoRA)
+
+If you also want a trainable Qwen3 path (instead of only native inference), you can run:
+
+```sh
+MODEL_NAME=Qwen/Qwen3-8B DATASET_PREFIX=Baby_Products OUTPUT_DIR=./checkpoints_qwen3_baby bash run_qwen3_train.sh
+```
+
+Notes:
+- this uses `*_user_items_negs_train.csv` for train/val split by user hash;
+- runtime leakage check ensures train/test user sets do not overlap;
+- training logs print step-level progress (loss / learning rate);
+- output is a LoRA-adapted checkpoint directory (for later inference/continued training).
