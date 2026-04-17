@@ -89,3 +89,17 @@ HF_MODEL_ID=meta-llama/Llama-2-7b-hf DATASET_PREFIX=Baby_Products REC_MODEL_PATH
 ```
 
 During rank inference, the code prints per-user running averages of HR@10/20/40 and NDCG@10/20/40 after each processed user.
+
+##### Qwen3 native inference (skip training)
+
+If you want to skip training and directly run native Qwen3 inference on test users:
+
+```sh
+MODEL_NAME=Qwen/Qwen3-8B DATASET_PREFIX=Baby_Products MAX_USERS=100 bash run_qwen3_native_infer.sh
+```
+
+This script:
+- loads Qwen3 with `AutoTokenizer` + `AutoModelForCausalLM` from HuggingFace directly;
+- samples `1 target + 1000 random negatives` per user by default;
+- asks the model to output a full ranking over candidates;
+- computes and prints running-average HR@10/20/40 and NDCG@10/20/40 per processed user.
