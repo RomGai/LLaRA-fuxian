@@ -97,6 +97,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--dataset', default='movielens_data', type=str)
     parser.add_argument('--data_dir', default='data/ref/movielens1m', type=str)
+    parser.add_argument('--dataset_prefix', default='Baby_Products', type=str)
+    parser.add_argument('--seq_max_len', default=10, type=int)
+    parser.add_argument('--val_user_ratio', default=0.05, type=float)
     parser.add_argument('--model_name', default='mlp_projector', type=str)
     parser.add_argument('--loss', default='lm', type=str)
     parser.add_argument('--weight_decay', default=1e-5, type=float)
@@ -120,6 +123,8 @@ if __name__ == '__main__':
     parser.add_argument('--max_epochs', default=10, type=int)
     parser.add_argument('--save', default='part', choices=['part', 'all'], type=str)
     parser.add_argument('--cans_num', default=10, type=int)
+    parser.add_argument('--rank_eval', action='store_true')
+    parser.add_argument('--verbose_step_print', action='store_true')
 
     # Finetuning
     parser.add_argument('--llm_tuning', default='lora', choices=['lora', 'freeze','freeze_lora'], type=str)
@@ -137,5 +142,12 @@ if __name__ == '__main__':
         args.padding_item_id = 3581
     elif 'lastfm' in args.data_dir:
         args.padding_item_id = 4606
+    elif args.dataset == 'amazon_new_data':
+        imap_path = os.path.join(args.data_dir, f"{args.dataset_prefix}_i_map.tsv")
+        if os.path.exists(imap_path):
+            with open(imap_path, "r", encoding="utf-8") as f:
+                next(f)
+                max_item = max(int(line.rstrip("\n").split("\t")[1]) for line in f if line.strip())
+            args.padding_item_id = max_item + 1
 
     main(args)
