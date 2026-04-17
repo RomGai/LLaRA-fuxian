@@ -12,6 +12,7 @@ import random
 from pandas.core.frame import DataFrame
 import os.path as op
 import os
+import math
 from optims import LinearWarmupCosineLRScheduler
 import numpy as np
 from peft import get_peft_config, get_peft_model, get_peft_model_state_dict, LoraConfig, TaskType, PeftModel
@@ -70,6 +71,8 @@ class MInterface(pl.LightningModule):
                 param.requires_grad = True
         out = self(batch)
         loss = self.configure_loss(out)
+        if getattr(self.hparams, "verbose_step_print", False):
+            print(f"[TrainStep] epoch={self.current_epoch} step={self.trainer.global_step} batch_idx={batch_idx} loss={loss.item():.6f}")
         self.log('loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log('lr', self.scheduler.optimizer.param_groups[0]['lr'], on_step=True, on_epoch=True, prog_bar=True)
         self.log('global_step_num', self.trainer.global_step, on_step=True, on_epoch=True, prog_bar=True)
@@ -84,6 +87,8 @@ class MInterface(pl.LightningModule):
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
+        if getattr(self.hparams, "rank_eval", False):
+            return self.rank_eval_step(batch, stage="val", batch_idx=batch_idx)
         generate_output = self.generate(batch)
         output=[]
         for i,generate in enumerate(generate_output):
@@ -94,6 +99,12 @@ class MInterface(pl.LightningModule):
         return output
 
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
+        if getattr(self.hparams, "rank_eval", False):
+            for o in outputs:
+                self.val_content["generate"].append(o["rank"])
+                self.val_content["real"].append(o["target"])
+                self.val_content["cans"].append(o["user_id"])
+            return
         for generate,real,cans in outputs:
             self.val_content["generate"].append(generate)
             self.val_content["real"].append(real)
@@ -104,11 +115,17 @@ class MInterface(pl.LightningModule):
         if not os.path.exists(self.hparams.output_dir):
             os.makedirs(self.hparams.output_dir)
         df.to_csv(op.join(self.hparams.output_dir, 'valid.csv'))
-        prediction_valid_ratio,hr=self.calculate_hr1(self.val_content)
-        metric=hr*prediction_valid_ratio
-        self.log('val_prediction_valid', prediction_valid_ratio, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('val_hr', hr, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('metric', metric, on_step=False, on_epoch=True, prog_bar=True)
+        if getattr(self.hparams, "rank_eval", False):
+            rank_metrics = self.calculate_rank_metrics(self.val_content["generate"])
+            for k, v in rank_metrics.items():
+                self.log(f"val_{k}", v, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('metric', rank_metrics["hr@20"], on_step=False, on_epoch=True, prog_bar=True)
+        else:
+            prediction_valid_ratio,hr=self.calculate_hr1(self.val_content)
+            metric=hr*prediction_valid_ratio
+            self.log('val_prediction_valid', prediction_valid_ratio, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('val_hr', hr, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('metric', metric, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_test_epoch_start(self):
         self.test_content={
@@ -119,6 +136,8 @@ class MInterface(pl.LightningModule):
 
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
+        if getattr(self.hparams, "rank_eval", False):
+            return self.rank_eval_step(batch, stage="test", batch_idx=batch_idx)
         generate_output = self.generate(batch)
         output=[]
         for i,generate in enumerate(generate_output):
@@ -129,6 +148,19 @@ class MInterface(pl.LightningModule):
         return output
     
     def on_test_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
+        if getattr(self.hparams, "rank_eval", False):
+            for o in outputs:
+                self.test_content["generate"].append(o["rank"])
+                self.test_content["real"].append(o["target"])
+                self.test_content["cans"].append(o["user_id"])
+            avg = self.calculate_rank_metrics(self.test_content["generate"])
+            for o in outputs:
+                print(
+                    f"[EvalUser] stage=test user_id={o['user_id']} processed={len(self.test_content['generate'])} "
+                    f"avg_hr@10={avg['hr@10']:.6f} avg_hr@20={avg['hr@20']:.6f} avg_hr@40={avg['hr@40']:.6f} "
+                    f"avg_ndcg@10={avg['ndcg@10']:.6f} avg_ndcg@20={avg['ndcg@20']:.6f} avg_ndcg@40={avg['ndcg@40']:.6f}"
+                )
+            return
         for generate,real,cans in outputs:
             self.test_content["generate"].append(generate)
             self.test_content["real"].append(real)
@@ -139,11 +171,18 @@ class MInterface(pl.LightningModule):
         if not os.path.exists(self.hparams.output_dir):
             os.makedirs(self.hparams.output_dir)
         df.to_csv(op.join(self.hparams.output_dir, 'test.csv'))
-        prediction_valid_ratio,hr=self.calculate_hr1(self.test_content)
-        metric=hr*prediction_valid_ratio
-        self.log('test_prediction_valid', prediction_valid_ratio, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('test_hr', hr, on_step=False, on_epoch=True, prog_bar=True)
-        self.log('metric', metric, on_step=False, on_epoch=True, prog_bar=True)
+        if getattr(self.hparams, "rank_eval", False):
+            rank_metrics = self.calculate_rank_metrics(self.test_content["generate"])
+            for k, v in rank_metrics.items():
+                self.log(f"test_{k}", v, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('metric', rank_metrics["hr@20"], on_step=False, on_epoch=True, prog_bar=True)
+            print(f"[EvalSummary] {rank_metrics}")
+        else:
+            prediction_valid_ratio,hr=self.calculate_hr1(self.test_content)
+            metric=hr*prediction_valid_ratio
+            self.log('test_prediction_valid', prediction_valid_ratio, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('test_hr', hr, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('metric', metric, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
         if hasattr(self.hparams, 'weight_decay'):
@@ -337,3 +376,43 @@ class MInterface(pl.LightningModule):
         else:
             hr1=0
         return valid_ratio,hr1
+
+    @torch.no_grad()
+    def score_candidates(self, seq, len_seq, cans):
+        logits = self.rec_model.forward_eval(seq, len_seq)
+        if logits.dim() == 1:
+            logits = logits.unsqueeze(0)
+        cans = cans.long().clamp(min=0)
+        return torch.gather(logits, dim=1, index=cans)
+
+    @torch.no_grad()
+    def rank_eval_step(self, batch, stage, batch_idx):
+        cand_scores = self.score_candidates(batch["seq"], batch["len_seq"], batch["cans"])
+        target = batch["item_id"]
+        results = []
+        for i in range(cand_scores.size(0)):
+            sample_scores = cand_scores[i]
+            sorted_idx = torch.argsort(sample_scores, descending=True)
+            sorted_cands = batch["cans"][i][sorted_idx]
+            pos = (sorted_cands == target[i]).nonzero(as_tuple=False)
+            rank = int(pos[0].item() + 1) if pos.numel() > 0 else int(sample_scores.numel() + 1)
+            user_id = batch["user_id"][i] if isinstance(batch["user_id"], list) else -1
+            print(f"[{stage.upper()}Step] batch={batch_idx} user_id={user_id} rank={rank}/{sample_scores.numel()} target={int(target[i])}")
+            results.append({"rank": rank, "target": int(target[i]), "user_id": user_id})
+        return results
+
+    def calculate_rank_metrics(self, ranks):
+        if len(ranks) == 0:
+            return {"hr@10": 0.0, "hr@20": 0.0, "hr@40": 0.0, "ndcg@10": 0.0, "ndcg@20": 0.0, "ndcg@40": 0.0}
+        ks = [10, 20, 40]
+        out = {}
+        for k in ks:
+            hits = 0.0
+            ndcg = 0.0
+            for r in ranks:
+                if r <= k:
+                    hits += 1.0
+                    ndcg += 1.0 / math.log2(r + 1.0)
+            out[f"hr@{k}"] = hits / len(ranks)
+            out[f"ndcg@{k}"] = ndcg / len(ranks)
+        return out
