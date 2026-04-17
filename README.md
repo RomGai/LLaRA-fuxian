@@ -103,3 +103,17 @@ This script:
 - samples `1 target + 1000 random negatives` per user by default;
 - asks the model to output a full ranking over candidates;
 - computes and prints running-average HR@10/20/40 and NDCG@10/20/40 per processed user.
+
+##### Qwen3-8B training (LoRA)
+
+If you also want a trainable Qwen3 path (instead of only native inference), you can run:
+
+```sh
+MODEL_NAME=Qwen/Qwen3-8B DATASET_PREFIX=Baby_Products OUTPUT_DIR=./checkpoints_qwen3_baby bash run_qwen3_train.sh
+```
+
+Notes:
+- this uses `*_user_items_negs_train.csv` for train/val split by user hash;
+- runtime leakage check ensures train/test user sets do not overlap;
+- training logs print step-level progress (loss / learning rate);
+- output is a LoRA-adapted checkpoint directory (for later inference/continued training).
